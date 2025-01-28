@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Conversation JSON Editor</title>
+  <style>
+    /* ----- RESET / BASE ----- */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      background-color: #f4f4f4;
+      color: #333;
+      transition: background-color 0.3s, color 0.3s;
+    }
+    body.dark-mode {
+      background-color: #2c2c2c;
+      color: #eee;
+    }
+
+    /* ----- HEADER CONTROLS ----- */
+    header {
+      padding: 0.5rem 1rem;
+      background: #ddd;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    body.dark-mode header {
+      background: #444;
+    }
+    header button,
+    header label {
+      cursor: pointer;
+      border: none;
+      background: #999;
+      color: #fff;
+      padding: 0.5rem;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+    body.dark-mode header button,
+    body.dark-mode header label {
+      background: #666;
+    }
+    header button:hover,
+    header label:hover {
+      background: #777;
+    }
+    header input[type="text"] {
+      padding: 0.4rem;
+      border: 1px solid #aaa;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+    .toggle-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    /* Additional form fields in the header for name, summaries */
+    /* Add some padding so it's not up against the edge */
+    #summaryFields {
+      padding: 0 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      margin-top: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    #summaryFields textarea {
+      width: 100%;
+      min-height: 40px;
+      resize: vertical;
+      font-size: 0.9rem;
+    }
+    #nameSection, #scenarioSection, #customerSection, #assistantSection {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    #nameSection label {
+      font-weight: bold;
+    }
+    #chatNameInput {
+      width: 120px;
+    }
+
+    /* ----- MAIN LAYOUT ----- */
+    main {
+      flex: 1 1 auto;
+      display: flex;
+      overflow: hidden; /* so the two panels can be scrollable inside */
+    }
+
+    /* ----- CONVERSATION PANEL ----- */
+    #conversationPanel {
+      flex: 1 1 50%;
+      border-right: 2px solid #ccc;
+      padding: 1rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    body.dark-mode #conversationPanel {
+      border-color: #555;
+    }
+
+    /* Summaries displayed at top of conversation panel */
+    #summaryDisplay {
+      margin-bottom: 1rem;
+      border: 1px solid #ccc;
+      background: #efefef;
+      padding: 0.5rem;
+      border-radius: 4px;
+    }
+    body.dark-mode #summaryDisplay {
+      background: #444;
+      border-color: #666;
+    }
+    #summaryDisplay > div {
+      margin-bottom: 0.5rem;
+      white-space: pre-wrap; /* preserve newlines in scenario, etc. */
+    }
+
+    /* ----- JSON EDITOR PANEL ----- */
+    #jsonEditorPanel {
+      flex: 1 1 50%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #jsonEditor {
+      flex: 1 1 auto;
+      width: 100%;
+      height: 100%;
+      resize: none;
+      border: none;
+      outline: none;
+      padding: 1rem;
+      font-family: monospace;
+      overflow-y: auto;
+    }
+    body.dark-mode #jsonEditor {
+      background-color: #333;
+      color: #eee;
+    }
+
+    /* ----- MESSAGE BUBBLES (Apple Messages–like) ----- */
+    /* 
+       Swapped so that .message.user is on the right (blue bubble) 
+       and .message.assistant on the left (gray bubble). 
+    */
+    .message {
+      display: flex;
+      align-items: flex-start;
+      max-width: 80%;
+      padding: 0.5rem;
+      border-radius: 12px;
+      position: relative;
+      word-wrap: break-word;
+      white-space: pre-wrap; /* preserve newlines inside messages */
+      cursor: move; /* indicates draggable */
+    }
+    /* user => right, blue */
+    .message.user {
+      align-self: flex-end;
+      background-color: #007aff; /* typical iMessage "you" bubble */
+      color: #fff;
+    }
+    /* assistant => left, gray */
+    .message.assistant {
+      align-self: flex-start;
+      background-color: #e5e5ea; /* typical iMessage user bubble */
+      color: #000;
+    }
+    /* system => center, lighter grey */
+    .message.system {
+      align-self: center;
+      background-color: #ccc;
+    }
+
+    body.dark-mode .message.user {
+      background-color: #007aff;
+      color: #fff;
+    }
+    body.dark-mode .message.assistant {
+      background-color: #555;
+      color: #fff;
+    }
+    body.dark-mode .message.system {
+      background-color: #555;
+      color: #fff;
+    }
+
+    /* Optional metadata display under message */
+    .metadata {
+      font-size: 0.75rem;
+      margin-top: 4px;
+      opacity: 0.7;
+    }
+
+    /* ----- EDITABLE MESSAGE TEXT (INLINE) ----- */
+    .message-text {
+      width: 100%;
+    }
+    .message-text[contenteditable="true"] {
+      border: 1px dashed #999;
+      padding: 2px;
+      border-radius: 4px;
+      outline: none;
+    }
+    .edit-icon {
+      cursor: pointer;
+      font-size: 0.8rem;
+      margin-left: 0.5rem;
+      opacity: 0.6;
+    }
+    .edit-icon:hover {
+      opacity: 1;
+    }
+
+    /* ----- CLICKABLE LINK STYLE ----- */
+    .clickable-link {
+      color: blue;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <!-- Hidden file input for loading JSON -->
+    <input type="file" id="fileInput" accept=".json" style="display: none" />
+
+    <!-- Open JSON -->
+    <button id="openFileBtn">Open JSON</button>
+
+    <!-- Save JSON -->
+    <button id="saveJsonBtn">Download JSON</button>
+
+    <!-- Refresh from Editor -->
+    <button id="refreshBtn">Refresh from Editor</button>
+
+    <!-- Export Link -->
+    <button id="exportLinkBtn">Generate Link</button>
+
+    <!-- Search -->
+    <input type="text" id="searchBox" placeholder="Search messages..." />
+
+    <!-- Toggle metadata -->
+    <div class="toggle-group">
+      <label for="metadataToggle">Metadata</label>
+      <input type="checkbox" id="metadataToggle" />
+    </div>
+
+    <!-- Dark Mode -->
+    <div class="toggle-group">
+      <label for="darkModeToggle">Dark Mode</label>
+      <input type="checkbox" id="darkModeToggle" />
+    </div>
+  </header>
+
+  <!-- Additional fields for name and summary -->
+  <div id="summaryFields">
+    <div id="nameSection">
+      <label for="chatNameInput">Chat Name:</label>
+      <input type="text" id="chatNameInput" placeholder="Chat Title" />
+    </div>
+    <div id="scenarioSection">
+      <label for="scenarioInput">Scenario Summary:</label>
+      <textarea id="scenarioInput"></textarea>
+    </div>
+    <div id="customerSection">
+      <label for="customerInput">Customer Summary:</label>
+      <textarea id="customerInput"></textarea>
+    </div>
+    <div id="assistantSection">
+      <label for="assistantInput">Assistant Summary:</label>
+      <textarea id="assistantInput"></textarea>
+    </div>
+  </div>
+
+  <header style="gap: 1rem;">
+    <!-- New buttons for adding messages of different types -->
+    <button id="addCustomerMessageBtn">Add Customer Message</button>
+    <button id="addAssistantMessageBtn">Add Assistant Message</button>
+    <button id="addSystemMessageBtn">Add System Message</button>
+  </header>
+
+  <main>
+    <!-- Conversation Panel (Apple Messages–style) -->
+    <div id="conversationPanel">
+      <!-- Summaries at the top display -->
+      <div id="summaryDisplay" style="display:none;">
+        <div id="scenarioDisplay"></div>
+        <div id="customerDisplay"></div>
+        <div id="assistantDisplay"></div>
+      </div>
+      <!-- Messages will be injected here dynamically -->
+    </div>
+
+    <!-- JSON Editor Panel -->
+    <div id="jsonEditorPanel">
+      <textarea id="jsonEditor" spellcheck="false"></textarea>
+    </div>
+  </main>
+
+  <script>
+    /************************************************************
+     * GLOBAL STATE
+     ************************************************************/
+
+    // We'll store a top-level object:
+    // {
+    //   name: "...",
+    //   scenario: "...",
+    //   customer: "...",
+    //   assistant: "...",
+    //   messages: [ { speaker, text, timestamp, ... }, ... ]
+    // }
+    let conversationData = {
+      name: "",
+      scenario: "",
+      customer: "",
+      assistant: "",
+      messages: []
+    };
+    let showMetadata = false;
+    let dragSrcEl = null; // for drag-and-drop reorder
+
+    /************************************************************
+     * DOM REFERENCES
+     ************************************************************/
+    const fileInput = document.getElementById('fileInput');
+    const openFileBtn = document.getElementById('openFileBtn');
+    const saveJsonBtn = document.getElementById('saveJsonBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const exportLinkBtn = document.getElementById('exportLinkBtn');
+    const searchBox = document.getElementById('searchBox');
+    const metadataToggle = document.getElementById('metadataToggle');
+    const darkModeToggle = document.getElementById('darkModeToggle');
+    const conversationPanel = document.getElementById('conversationPanel');
+    const jsonEditor = document.getElementById('jsonEditor');
+
+    // Summary fields
+    const chatNameInput = document.getElementById('chatNameInput');
+    const scenarioInput = document.getElementById('scenarioInput');
+    const customerInput = document.getElementById('customerInput');
+    const assistantInput = document.getElementById('assistantInput');
+
+    // Summaries displayed
+    const summaryDisplay = document.getElementById('summaryDisplay');
+    const scenarioDisplay = document.getElementById('scenarioDisplay');
+    const customerDisplay = document.getElementById('customerDisplay');
+    const assistantDisplay = document.getElementById('assistantDisplay');
+
+    // Add-message buttons
+    const addCustomerMessageBtn = document.getElementById('addCustomerMessageBtn');
+    const addAssistantMessageBtn = document.getElementById('addAssistantMessageBtn');
+    const addSystemMessageBtn = document.getElementById('addSystemMessageBtn');
+
+    /************************************************************
+     * EVENT LISTENERS
+     ************************************************************/
+
+    // Open JSON
+    openFileBtn.addEventListener('click', () => {
+      fileInput.click();
+    });
+    fileInput.addEventListener('change', handleFileSelect);
+
+    // Save JSON
+    saveJsonBtn.addEventListener('click', downloadJSON);
+
+    // Refresh from Editor
+    refreshBtn.addEventListener('click', () => {
+      try {
+        const parsed = JSON.parse(jsonEditor.value);
+
+        // Expect an object with messages array
+        if (!parsed.messages || !Array.isArray(parsed.messages)) {
+          // If it's an array, wrap it
+          if (Array.isArray(parsed)) {
+            conversationData = {
+              name: "",
+              scenario: "",
+              customer: "",
+              assistant: "",
+              messages: parsed
+            };
+          } else {
+            alert('JSON must have a "messages" array or be an array itself.');
+            return;
+          }
+        } else {
+          conversationData = parsed;
+        }
+
+        updateFieldsFromData();
+        renderConversation();
+      } catch (e) {
+        alert('Error parsing JSON: ' + e.message);
+      }
+    });
+
+    // Generate sharable link
+    exportLinkBtn.addEventListener('click', generateLink);
+
+    // Add message buttons
+    addCustomerMessageBtn.addEventListener('click', () => {
+      addNewMessage('customer');
+    });
+    addAssistantMessageBtn.addEventListener('click', () => {
+      addNewMessage('assistant');
+    });
+    addSystemMessageBtn.addEventListener('click', () => {
+      addNewMessage('system');
+    });
+
+    // Fields for name/scenario/customer/assistant
+    chatNameInput.addEventListener('input', () => {
+      conversationData.name = chatNameInput.value;
+      updateJsonEditorFromData();
+    });
+    scenarioInput.addEventListener('input', () => {
+      conversationData.scenario = scenarioInput.value;
+      updateJsonEditorFromData();
+    });
+    customerInput.addEventListener('input', () => {
+      conversationData.customer = customerInput.value;
+      updateJsonEditorFromData();
+    });
+    assistantInput.addEventListener('input', () => {
+      conversationData.assistant = assistantInput.value;
+      updateJsonEditorFromData();
+    });
+
+    // Search messages
+    searchBox.addEventListener('input', renderConversation);
+
+    // Toggle metadata display
+    metadataToggle.addEventListener('change', () => {
+      showMetadata = metadataToggle.checked;
+      renderConversation();
+    });
+
+    // Toggle dark mode
+    darkModeToggle.addEventListener('change', () => {
+      document.body.classList.toggle('dark-mode', darkModeToggle.checked);
+    });
+
+    /************************************************************
+     * FILE / URL HANDLING
+     ************************************************************/
+
+    function handleFileSelect(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        try {
+          const data = JSON.parse(event.target.result);
+
+          if (Array.isArray(data)) {
+            // It's just an array. Let's wrap it in the standard object.
+            conversationData = {
+              name: "",
+              scenario: "",
+              customer: "",
+              assistant: "",
+              messages: data
+            };
+          } else if (data.messages && Array.isArray(data.messages)) {
+            conversationData = data;
+          } else {
+            alert('JSON must be an array or an object with a "messages" array.');
+            return;
+          }
+          updateFieldsFromData();
+          renderConversation();
+        } catch (err) {
+          alert('Invalid JSON file:\n' + err.message);
+        }
+      };
+      reader.readAsText(file);
+      // reset input
+      fileInput.value = '';
+    }
+
+    function downloadJSON() {
+      // Use the chat name as the filename if available
+      const fileName = conversationData.name ? conversationData.name : "conversation";
+
+      const blob = new Blob([JSON.stringify(conversationData, null, 2)], {
+        type: 'application/json',
+      });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName.replace(/\s+/g, '_') + '.json';
+      link.click();
+
+      // Cleanup
+      URL.revokeObjectURL(url);
+    }
+
+    // Encode data as base64 and attach to URL
+    function generateLink() {
+      try {
+        const jsonStr = JSON.stringify(conversationData);
+        const base64Str = btoa(encodeURIComponent(jsonStr));
+        // Construct a new URL with the ?data= param
+        const newUrl = `${location.origin}${location.pathname}?data=${base64Str}`;
+        prompt("Here is your sharable link:", newUrl);
+      } catch (err) {
+        alert("Error generating link: " + err.message);
+      }
+    }
+
+    // Check if there's ?data= in the URL, load it
+    (function checkUrlData() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const base64Data = urlParams.get('data');
+      if (base64Data) {
+        try {
+          const decoded = decodeURIComponent(atob(base64Data));
+          const parsed = JSON.parse(decoded);
+          if (parsed.messages && Array.isArray(parsed.messages)) {
+            conversationData = parsed;
+          } else if (Array.isArray(parsed)) {
+            conversationData = {
+              name: "",
+              scenario: "",
+              customer: "",
+              assistant: "",
+              messages: parsed
+            };
+          }
+        } catch (err) {
+          console.warn("Could not parse URL data:", err);
+        }
+        updateFieldsFromData();
+        renderConversation();
+      }
+    })();
+
+    /************************************************************
+     * HELPER FUNCTIONS
+     ************************************************************/
+
+    function addNewMessage(speakerType) {
+      const newMessage = {
+        speaker: speakerType,
+        text: `New ${speakerType} message`,
+        timestamp: new Date().toISOString()
+      };
+      conversationData.messages.push(newMessage);
+      updateJsonEditorFromData();
+      renderConversation();
+    }
+
+    function parseClickableLinks(rawText) {
+      // Replace <<...>> with clickable spans
+      // e.g. "Some text <<click me>> more text"
+      // becomes "Some text <span class="clickable-link">click me</span> more text"
+      if (!rawText) return "";
+      return rawText.replace(/<<([^>]+)>>/g, '<span class="clickable-link">$1</span>');
+    }
+
+    function updateJsonEditorFromData() {
+      jsonEditor.value = JSON.stringify(conversationData, null, 2);
+    }
+
+    function updateFieldsFromData() {
+      chatNameInput.value = conversationData.name || "";
+      scenarioInput.value = conversationData.scenario || "";
+      customerInput.value = conversationData.customer || "";
+      assistantInput.value = conversationData.assistant || "";
+      updateJsonEditorFromData();
+    }
+
+    /************************************************************
+     * DRAG & DROP REORDER
+     ************************************************************/
+
+    function handleDragStart(e) {
+      dragSrcEl = e.currentTarget;
+      e.dataTransfer.effectAllowed = 'move';
+      // store the index
+      const index = dragSrcEl.getAttribute('data-message-index');
+      e.dataTransfer.setData('text/plain', index);
+      dragSrcEl.style.opacity = '0.4';
+    }
+
+    function handleDragOver(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      return false;
+    }
+
+    function handleDragEnter(e) {
+      e.currentTarget.classList.add('over');
+    }
+
+    function handleDragLeave(e) {
+      e.currentTarget.classList.remove('over');
+    }
+
+    function handleDrop(e) {
+      e.stopPropagation(); 
+      e.preventDefault();
+      if (dragSrcEl !== e.currentTarget) {
+        const srcIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
+        const targetIndex = parseInt(e.currentTarget.getAttribute('data-message-index'), 10);
+
+        // Reorder the conversationData.messages array
+        const draggedItem = conversationData.messages[srcIndex];
+        conversationData.messages.splice(srcIndex, 1);
+        conversationData.messages.splice(targetIndex, 0, draggedItem);
+
+        updateJsonEditorFromData();
+        renderConversation();
+      }
+      return false;
+    }
+
+    function handleDragEnd(e) {
+      e.currentTarget.style.opacity = '1';
+      const items = document.querySelectorAll('.message');
+      items.forEach(item => item.classList.remove('over'));
+    }
+
+    /************************************************************
+     * RENDERING THE CONVERSATION
+     ************************************************************/
+    function renderConversation() {
+      conversationPanel.innerHTML = ''; // clear existing
+      const filter = searchBox.value.trim().toLowerCase();
+
+      // Show/hide summary display
+      if (conversationData.scenario || conversationData.customer || conversationData.assistant) {
+        summaryDisplay.style.display = 'block';
+        scenarioDisplay.textContent = "Scenario: " + (conversationData.scenario || "");
+        customerDisplay.textContent = "Customer: " + (conversationData.customer || "");
+        assistantDisplay.textContent = "Assistant: " + (conversationData.assistant || "");
+      } else {
+        summaryDisplay.style.display = 'none';
+      }
+
+      // Render each message
+      conversationData.messages.forEach((msg, index) => {
+        // Basic text search
+        if (filter && !msg.text?.toLowerCase().includes(filter)) {
+          return; // skip if not matching search
+        }
+
+        // Create the message wrapper
+        const messageEl = document.createElement('div');
+        messageEl.classList.add('message');
+        messageEl.setAttribute('draggable', 'true');
+        messageEl.setAttribute('data-message-index', index);
+
+        if (msg.speaker === 'customer') {
+          messageEl.classList.add('user'); // Now "user" means right side, blue bubble
+        } else if (msg.speaker === 'assistant') {
+          messageEl.classList.add('assistant'); // left, gray
+        } else {
+          // fallback: system or anything else
+          messageEl.classList.add('system');
+        }
+
+        // DRAG EVENTS
+        messageEl.addEventListener('dragstart', handleDragStart);
+        messageEl.addEventListener('dragenter', handleDragEnter);
+        messageEl.addEventListener('dragover', handleDragOver);
+        messageEl.addEventListener('dragleave', handleDragLeave);
+        messageEl.addEventListener('drop', handleDrop);
+        messageEl.addEventListener('dragend', handleDragEnd);
+
+        // Message text (contenteditable for inline editing)
+        const textEl = document.createElement('div');
+        textEl.classList.add('message-text');
+
+        // parseClickableLinks to replace <<...>> with clickable spans
+        textEl.innerHTML = parseClickableLinks(msg.text || '');
+        textEl.setAttribute('data-index', index);
+
+        // Inline editing: we'll store original text in a data attribute
+        // If user toggles editing, we replace .innerHTML with the raw text
+        // so they don't see clickable link markup while editing
+        textEl.setAttribute('data-raw-text', msg.text || '');
+
+        // Edit icon
+        const editIcon = document.createElement('span');
+        editIcon.textContent = '✎';
+        editIcon.classList.add('edit-icon');
+        editIcon.title = 'Edit message text';
+        editIcon.addEventListener('click', () => {
+          const isEditable = textEl.getAttribute('contenteditable') === 'true';
+          if (!isEditable) {
+            // Switch to editable, show raw text
+            textEl.setAttribute('contenteditable', 'true');
+            textEl.textContent = msg.text || '';
+            textEl.focus();
+          } else {
+            // Save changes
+            textEl.setAttribute('contenteditable', 'false');
+            const idx = parseInt(textEl.getAttribute('data-index'), 10);
+            const newRawText = textEl.textContent;
+            conversationData.messages[idx].text = newRawText;
+            // Update the clickable rendering
+            textEl.innerHTML = parseClickableLinks(newRawText);
+            updateJsonEditorFromData();
+          }
+        });
+
+        // Delete icon
+        const deleteIcon = document.createElement('span');
+        deleteIcon.textContent = '🗑️';
+        deleteIcon.classList.add('edit-icon');
+        deleteIcon.title = 'Delete message';
+        deleteIcon.addEventListener('click', () => {
+          if (confirm('Are you sure you want to delete this message?')) {
+            conversationData.messages.splice(index, 1);
+            updateJsonEditorFromData();
+            renderConversation();
+          }
+        });
+
+        // Append text, edit icon, and delete icon
+        messageEl.appendChild(textEl);
+        messageEl.appendChild(editIcon);
+        messageEl.appendChild(deleteIcon);
+
+        // Metadata (timestamp, tokens, etc.) if showMetadata is true
+        if (showMetadata) {
+          const metaEl = document.createElement('div');
+          metaEl.classList.add('metadata');
+          metaEl.innerHTML = '';
+          // If there's a timestamp
+          if (msg.timestamp) {
+            metaEl.innerHTML += `<div><strong>Timestamp:</strong> ${msg.timestamp}</div>`;
+          }
+          // Display any other metadata keys
+          for (const key in msg) {
+            if (!['speaker', 'text', 'timestamp'].includes(key)) {
+              metaEl.innerHTML += `<div><strong>${key}:</strong> ${JSON.stringify(msg[key])}</div>`;
+            }
+          }
+          messageEl.appendChild(metaEl);
+        }
+
+        // Add to the panel
+        conversationPanel.appendChild(messageEl);
+      });
+    }
+
+    // Initialize empty data on first load if nothing loaded from URL
+    updateFieldsFromData();
+    renderConversation();
+  </script>
+</body>
+</html>
